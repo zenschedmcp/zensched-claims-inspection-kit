@@ -48,14 +48,14 @@ Derive from local IDs so a retry or a re-run of the same request cannot create d
 | Call | Key |
 |---|---|
 | `location_create` | `loc-place-{place_id}` |
-| `event_create` | `event-insp-{inspection_id}` |
-| `shift_create` | `shift-insp-{inspection_id}` |
+| `event_create` | `event-insp-{inspection_id}-{YYYYMMDD}` (the visit date) |
+| `shift_create` | `shift-insp-{inspection_id}-{YYYYMMDD}` (the visit date) |
 | `form_assign` | `assign-report-{event_id}` |
 | `shift_cancel` | `cancel-shift-{shift_id}` |
 | `worker_invite` | `worker-{email}` |
 | `form_create` | `form-claim-photo-report` |
 
-A same-day inspector swap on an existing inspection appends `-2` to the shift key.
+`inspections_upcoming` emits all three keys already built (`event-insp-1-20260908`). The visit date is in the event and shift keys because ZenSched replays a cached response for the same key for 24 hours: a different-day reschedule on the same inspection row would otherwise get back the old event and the cancelled shift instead of new ones. A same-day inspector swap on an existing inspection appends `-2` (then `-3`, ...) to the shift key.
 
 ## The Claim Photo Report form
 
@@ -207,7 +207,7 @@ When `access` is `denied` (or the owner says "they wouldn't let me in"):
 ### Reschedule
 
 - **Same day, new time:** `shift_update(shift_id, start=<new start_iso>, end=<new end_iso>)` then `UPDATE inspections SET scheduled_start = ? WHERE inspection_id = ?`. Same assignment number, same event (still that day).
-- **Different day:** the event is single-day, so: `shift_cancel(shift_id, reason="rescheduled", idempotency_key="cancel-shift-{shift_id}")`; `UPDATE inspections SET zensched_shift_id = NULL, zensched_event_id = NULL, scheduled_start = <new>`; then intake steps 7–10 for the same inspection row (new event for the new day). If the *assignment* is being withdrawn and reissued, mark the old assignment `rescheduled`, insert a new assignment with `rescheduled_from`, and start intake again. Only the live assignment bills.
+- **Different day:** the event is single-day, so: `shift_cancel(shift_id, reason="rescheduled", idempotency_key="cancel-shift-{shift_id}")`; `UPDATE inspections SET zensched_shift_id = NULL, zensched_event_id = NULL, scheduled_start = <new>`; then intake steps 7–10 for the same inspection row (new event for the new day). Re-read `event_idempotency_key` / `shift_idempotency_key` from `inspections_upcoming` **after** the update — they carry the new date, so the calls are not replayed from the old day's cached responses. If the *assignment* is being withdrawn and reissued, mark the old assignment `rescheduled`, insert a new assignment with `rescheduled_from`, and start intake again. Only the live assignment bills.
 
 ### Cancel
 
@@ -217,7 +217,7 @@ When `access` is `denied` (or the owner says "they wouldn't let me in"):
 
 - **Fee change for a client:** `UPDATE clients SET default_fee = ? WHERE client_id = ?`. Existing assignments keep their snapshot fees.
 - **Pin is wrong at a repeat site:** `location_update(location_id, lat, lng)` (free) or `location_refine` ($0.10). Because the place is cached, the fix sticks. To let inspectors punch from the parking lot, **widen the radius with `policy_update`**, not on the location.
-- **Inspector swap** (agency): `shift_cancel` the old shift, `UPDATE inspections SET inspector_id = ?, zensched_shift_id = NULL`, then `shift_create` on the same event for the new worker with key `shift-insp-{inspection_id}-2`, and update `zensched_shift_id`.
+- **Inspector swap** (agency): `shift_cancel` the old shift, `UPDATE inspections SET inspector_id = ?, zensched_shift_id = NULL`, then `shift_create` on the same event for the new worker with key `{shift_idempotency_key}-2` (e.g. `shift-insp-1-20260908-2`), and update `zensched_shift_id`.
 - **Client inactive:** `UPDATE clients SET is_active = 0`.
 
 ## Errors
@@ -244,6 +244,6 @@ When `access` is `denied` (or the owner says "they wouldn't let me in"):
 
 Owner: *"Summit TPA just sent this: Order TPA-8841, Auto, DOL 9/4, inspect 1840 S Pearl St Denver CO 80210 Tue 9/8 10:00 AM, claim 26-448190, insured Maya Chen DOB 1984-03-11, policy HO-99102, fee $175, due 9/10."*
 
-You: load settings → `assignments_due` → `SELECT client_id FROM clients WHERE client_name LIKE 'Summit%'` → normalize `1840 s pearl st denver co 80210` → insert place with label `Inspect - Pearl St` → insert assignment (`auto`, `claim_no` / `claimant_name` / `claimant_dob` / `policy_no` **local only**, `client_order_ref` TPA-8841, fee 175) → insert inspection (`2026-09-08T10:00`) → `inspections_upcoming` gives `A-2026-0001`, `Inspect A-2026-0001 - Pearl St`, `needs_location = 1`, `start_iso 2026-09-08T10:00:00-06:00` → confirm $0.03 + $0.35 → `location_create(name="Inspect - Pearl St", street_address="1840 S Pearl St, Denver, CO 80210", checkin_radius_m=100, idempotency_key="loc-place-1")` → `event_create(..., title="Inspect A-2026-0001 - Pearl St", start_date="2026-09-08", end_date="2026-09-08", idempotency_key="event-insp-1")` → `form_assign` → `shift_create` → update the inspection → reply:
+You: load settings → `assignments_due` → `SELECT client_id FROM clients WHERE client_name LIKE 'Summit%'` → normalize `1840 s pearl st denver co 80210` → insert place with label `Inspect - Pearl St` → insert assignment (`auto`, `claim_no` / `claimant_name` / `claimant_dob` / `policy_no` **local only**, `client_order_ref` TPA-8841, fee 175) → insert inspection (`2026-09-08T10:00`) → `inspections_upcoming` gives `A-2026-0001`, `Inspect A-2026-0001 - Pearl St`, `needs_location = 1`, `start_iso 2026-09-08T10:00:00-06:00` → confirm $0.03 + $0.35 → `location_create(name="Inspect - Pearl St", street_address="1840 S Pearl St, Denver, CO 80210", checkin_radius_m=100, idempotency_key="loc-place-1")` → `event_create(..., title="Inspect A-2026-0001 - Pearl St", start_date="2026-09-08", end_date="2026-09-08", idempotency_key="event-insp-1-20260908")` → `form_assign` → `shift_create` → update the inspection → reply:
 
 > Booked **A-2026-0001** visit 1: auto photos, Summit TPA order TPA-8841, Tue Sep 8 10:00–11:00 at Pearl St, Denver. $175, due Sep 10. It's on your phone with the Claim Photo Report attached. Maya Chen, claim 26-448190, policy HO-99102, and DOB are only on your computer; ZenSched sees "Inspect A-2026-0001 - Pearl St".

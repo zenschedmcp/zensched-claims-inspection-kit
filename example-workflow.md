@@ -146,7 +146,7 @@ sqlite_query:
   → A-2026-0001 | visit 1 | 2026-09-08T10:00:00-06:00 | 2026-09-08T11:00:00-06:00
     | Inspect - Pearl St | Inspect A-2026-0001 - Pearl St
     | 1840 S Pearl St, Denver, CO 80210 | needs_location 1 | worker 701
-    | loc-place-1 | event-insp-1 | shift-insp-1
+    | loc-place-1 | event-insp-1-20260908 | shift-insp-1-20260908
 ```
 
 > Putting this on ZenSched costs $0.03 to geocode the address; each inspection then costs about $0.35 in GPS check-in/out and reading the photo report ($0.38 total for a new address). OK to proceed for this and future visits?
@@ -170,7 +170,7 @@ event_create:
   title: "Inspect A-2026-0001 - Pearl St"
   start_date: "2026-09-08"
   end_date:   "2026-09-08"
-  idempotency_key: "event-insp-1"
+  idempotency_key: "event-insp-1-20260908"
   → event_id: 7201
 
 form_assign:
@@ -184,7 +184,7 @@ shift_create:
   worker_id: 701
   start: "2026-09-08T10:00:00-06:00"
   end:   "2026-09-08T11:00:00-06:00"
-  idempotency_key: "shift-insp-1"
+  idempotency_key: "shift-insp-1-20260908"
   → shift_id: 89101, status: "scheduled", forms_installed: [501]
 
 sqlite_execute: UPDATE inspections SET zensched_event_id = 7201, zensched_shift_id = 89101 WHERE inspection_id = 1;
@@ -227,12 +227,12 @@ location_create: name "Inspect - Willow Ln", street_address "412 Willow Ln, Boul
   → location_id 9202
 sqlite_execute:  UPDATE places SET zensched_location_id = 9202 WHERE place_id = 2;
 event_create:    location_id 9202, title "Inspect A-2026-0002 - Willow Ln",
-                 start_date "2026-09-09", end_date "2026-09-09", idempotency_key "event-insp-2"
+                 start_date "2026-09-09", end_date "2026-09-09", idempotency_key "event-insp-2-20260909"
   → event_id 7202
 form_assign:     form_id 501, event_id 7202, idempotency_key "assign-report-7202"
 shift_create:    event_id 7202, worker_id 701,
                  start "2026-09-09T14:00:00-06:00", end "2026-09-09T15:00:00-06:00",
-                 idempotency_key "shift-insp-2"
+                 idempotency_key "shift-insp-2-20260909"
   → shift_id 89102
 sqlite_execute:  UPDATE inspections SET zensched_event_id = 7202, zensched_shift_id = 89102 WHERE inspection_id = 2;
 ```
