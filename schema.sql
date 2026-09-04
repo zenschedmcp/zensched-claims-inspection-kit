@@ -440,7 +440,10 @@ END;
 -- Upcoming planned inspections (today through today + 6, local date of the
 -- computer running the database). start_iso / end_iso carry
 -- settings.timezone_offset and are ready for shift_create. The three
--- idempotency keys and the ZenSched names are ready too.
+-- idempotency keys and the ZenSched names are ready too. The event and shift
+-- keys include the visit date so a different-day reschedule (shift_cancel +
+-- new event/shift on the same row) gets fresh keys instead of replaying the
+-- cached event / cancelled shift within ZenSched's 24-hour idempotency window.
 --   needs_location = 1 -> the place has no ZenSched location yet
 --   needs_shift    = 1 -> the inspection has no ZenSched shift yet
 -- Event title is ALWAYS "Inspect {assignment_no} - {street}" — never a
@@ -493,8 +496,8 @@ SELECT
   a.notes                                                                          AS assignment_notes,
   i.notes,
   'loc-place-' || p.place_id                                                      AS loc_idempotency_key,
-  'event-insp-' || i.inspection_id                                                AS event_idempotency_key,
-  'shift-insp-' || i.inspection_id                                                AS shift_idempotency_key
+  'event-insp-' || i.inspection_id || '-' || strftime('%Y%m%d', i.scheduled_start) AS event_idempotency_key,
+  'shift-insp-' || i.inspection_id || '-' || strftime('%Y%m%d', i.scheduled_start) AS shift_idempotency_key
 FROM inspections i
 JOIN assignments a ON a.assignment_id = i.assignment_id
 JOIN clients c ON c.client_id = a.client_id
